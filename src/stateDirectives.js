@@ -143,6 +143,17 @@ function $StateRefDirective($state, $timeout) {
           };
         }
       });
+
+      element.bind("mouseenter", function(e) {
+        $state.clearCachedResolve();
+        console.log('precache route')
+        $state.go(ref.state, params, {cache: true});
+      });
+
+      element.bind('mouseleave', function(e) {
+        console.log('clear route precache');
+        $state.clearCachedResolve();
+      });
     }
   };
 }

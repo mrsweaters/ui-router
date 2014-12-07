@@ -897,6 +897,15 @@ function $StateProvider(   $urlRouterProvider,   $urlMatcherFactory) {
       return $state.transitionTo(to, params, extend({ inherit: true, relative: $state.$current }, options));
     };
 
+
+    // Used by hover events to preload resolved
+    // route dependecies
+    $state.cachedResolve = null;
+
+    $state.clearCachedResolve = function clearCachedResolve() {
+      $state.cachedResolve = null;
+    };
+
     /**
      * @ngdoc function
      * @name ui.router.state.$state#transitionTo
@@ -938,7 +947,7 @@ function $StateProvider(   $urlRouterProvider,   $urlMatcherFactory) {
     $state.transitionTo = function transitionTo(to, toParams, options) {
       toParams = toParams || {};
       options = extend({
-        location: true, inherit: false, relative: null, notify: true, reload: false, $retry: false
+        location: true, inherit: false, relative: null, notify: true, reload: false, $retry: false, cache: false
       }, options || {});
 
       var from = $state.$current, fromParams = $state.params, fromPath = from.path;
@@ -1040,11 +1049,18 @@ function $StateProvider(   $urlRouterProvider,   $urlMatcherFactory) {
       // though we create the locals object itself outside resolveState(), it is initially
       // empty and gets filled asynchronously. We need to keep track of the promise for the
       // (fully resolved) current locals, and pass this down the chain.
-      var resolved = $q.when(locals);
 
-      for (var l = keep; l < toPath.length; l++, state = toPath[l]) {
-        locals = toLocals[l] = inherit(locals);
-        resolved = resolveState(state, toParams, state === to, resolved, locals, options);
+      if ($state.cachedResolve) {
+        locals = $state.cachedResolve.locals;
+        var resolved = $state.cachedResolve.resolved;
+        $state.cachedResolve = null;
+      } else {
+        var resolved = $q.when(locals);
+
+        for (var l = keep; l < toPath.length; l++, state = toPath[l]) {
+          locals = toLocals[l] = inherit(locals);
+          resolved = resolveState(state, toParams, state === to, resolved, locals, options);
+        }
       }
 
       // Once everything is resolved, we are ready to perform the actual transition
@@ -1055,6 +1071,11 @@ function $StateProvider(   $urlRouterProvider,   $urlMatcherFactory) {
         var l, entering, exiting;
 
         if ($state.transition !== transition) return TransitionSuperseded;
+
+        if (options.cache) {
+          $state.cachedResolve = {resolved: resolved, locals: locals};
+          return TransitionPrevented;
+        }
 
         // Exit 'from' states not kept
         for (l = fromPath.length - 1; l >= keep; l--) {
@@ -1083,6 +1104,12 @@ function $StateProvider(   $urlRouterProvider,   $urlMatcherFactory) {
         $state.params = toParams;
         copy($state.params, $stateParams);
         $state.transition = null;
+
+        // This is a hack because the to.navigable.locals
+        // get undefined when pulled from $state.cachedResolve
+        if (!to.navigable.locals) {
+          to.navigable.locals = locals;
+        }
 
         if (options.location && to.navigable) {
           $urlRouter.push(to.navigable.url, to.navigable.locals.globals.$stateParams, {
